@@ -116,6 +116,14 @@ class MemoryStats(BaseModel):
     by_kind: dict[str, int]
 
 
+class MemoryExport(BaseModel):
+    """Portable local memory export."""
+
+    version: int = 1
+    exported_at: datetime
+    memories: list[MemoryRecord]
+
+
 class MemoryEvent(BaseModel):
     """Audit entry for a memory mutation."""
 

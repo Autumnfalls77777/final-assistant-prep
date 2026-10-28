@@ -2,8 +2,8 @@
 
 A modular, local-first personal AI assistant for Windows.
 
-**Current implementation:** Phase 0 foundation and Phase 1 read-only tool registry.  
-**Owner sign-off:** Pending. Both phases were authorized; local implementation verification is complete.
+**Current implementation:** Phases 0–3 — foundation, read-only tools, Gemini/Ollama orchestration, and persistent local memory.  
+**Owner sign-off:** Pending. Local implementation verification is complete; Phase 2 live-provider validation is blocked by missing provider configuration.
 
 ## Current scope
 
@@ -11,7 +11,7 @@ The backend currently provides:
 
 - Validated configuration loaded from the project `.env`.
 - A loopback-only FastAPI service.
-- `GET /health` liveness checks.
+- `GET /health` liveness checks that require no AI credentials.
 - A typed tool registry with permission checks, timeouts, structured errors, and JSONL audit logging.
 - Four read-only Windows system tools:
   - `get_system_info`
@@ -20,11 +20,21 @@ The backend currently provides:
   - `get_battery_status`
 - Tool discovery through `GET /tools`.
 - Explicit tool execution through `POST /tools/{tool_name}/execute`.
+- Gemini and Ollama provider adapters behind a common interface.
+- Gemini primary with optional Ollama fallback.
+- Runtime provider discovery and selection:
+  - `GET /models`
+  - `PUT /models/active`
+- A bounded tool-calling orchestrator through `POST /chat`.
+- Truthful execution evidence: tool results, failure warnings, and `execution_verified`.
+- SQLite-backed memory with `personal`, `project`, `episodic`, `working`, and `semantic` records.
+- Local hashing embeddings and vector-plus-lexical retrieval.
+- Memory deduplication, correction, expiry, retention cleanup, inspection, export, and deletion.
+- Memory endpoints under `/memory`.
+- Automatic episodic storage of completed chat turns.
 
 The following are intentionally **not** implemented yet:
 
-- AI/model orchestration — Phase 2.
-- Memory — Phase 3.
 - Desktop UI — Phase 4.
 - Voice — Phase 5.
 - Browser, screen, and coding tools — Phase 6.
@@ -39,7 +49,7 @@ The following are intentionally **not** implemented yet:
 - Python 3.12
 - Git
 
-Node.js is only needed later for the desktop/mobile phases. Rust/Tauri is only needed for Phase 4.
+Node.js, Rust, and the Tauri CLI are required for the Phase 4 desktop application. They are not required to run the backend.
 
 ## Setup
 
@@ -51,7 +61,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-The real `.env` file is local and must never be committed. Use `.env.example` as the template.
+Copy `.env.example` to `.env` and fill in only the values you need. The real `.env` file is local and must never be committed.
 
 ## Run
 
@@ -61,11 +71,131 @@ The real `.env` file is local and must never be committed. Use `.env.example` as
 
 The server binds to the validated loopback address and port from `.env`. Do not expose it publicly.
 
+## Model providers
+
+### Gemini primary
+
+Add a Gemini API key to `.env`:
+
+```dotenv
+DEFAULT_MODEL_PROVIDER=gemini
+GEMINI_API_KEY=your-key-here
+GEMINI_MODEL=gemini-2.5-flash
+LOCAL_FALLBACK_ENABLED=true
+```
+
+The key is sent through the `x-goog-api-key` header and is not included in logs or API responses.
+
+### Ollama fallback or primary
+
+Start Ollama and make sure the configured model is installed:
+
+```powershell
+ollama serve
+ollama pull llama3.1
+```
+
+Relevant settings:
+
+```dotenv
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.1
+```
+
+When Gemini is primary and `LOCAL_FALLBACK_ENABLED=true`, a Gemini failure falls back to Ollama. When Ollama is selected as the active provider, it is used directly.
+
+### Runtime provider selection
+
+Inspect provider status:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/models
+```
+
+Switch the active provider for the running process:
+
+```powershell
+Invoke-RestMethod `
+  -Method Put `
+  -Uri "http://127.0.0.1:<API_PORT>/models/active" `
+  -ContentType "application/json" `
+  -Body '{"provider": "ollama"}'
+```
+
+Runtime selection is in-memory and resets to `DEFAULT_MODEL_PROVIDER` when the backend restarts.
+
+If no provider is available, `POST /chat` returns `503`. It does not fabricate an answer.
+
+## Chat
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:<API_PORT>/chat" `
+  -ContentType "application/json" `
+  -Body '{"message": "What is my disk usage?"}'
+```
+
+The response includes:
+
+- `reply`
+- `provider` and `providers_used`
+- `fallback_used`
+- `tool_results`
+- `execution_verified`
+- `iterations`
+- `conversation_id`
+- `warnings`
+
+A tool is executed only through the Phase 1 registry. The model cannot grant itself permission.
+
+## Memory
+
+Create a memory:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:<API_PORT>/memory" `
+  -ContentType "application/json" `
+  -Body '{"kind":"personal","content":"My preferred editor is VS Code.","source":"user","confidence":0.9,"project":"jarvis"}'
+```
+
+Search:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:<API_PORT>/memory/search?q=preferred%20editor"
+```
+
+Inspect and export:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/memory
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/memory/export
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/memory/stats
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/memory/events
+```
+
+Correct or delete:
+
+```powershell
+Invoke-RestMethod `
+  -Method Patch `
+  -Uri "http://127.0.0.1:<API_PORT>/memory/<MEMORY_ID>" `
+  -ContentType "application/json" `
+  -Body '{"content":"My preferred editor is Neovim.","confidence":0.99}'
+
+Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:<API_PORT>/memory/<MEMORY_ID>"
+```
+
+Memory is stored locally at `MEMORY_DB_PATH`. Retrieved memory is treated as untrusted data, not instructions.
+
 ## Verify
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:<API_PORT>/health
 Invoke-RestMethod http://127.0.0.1:<API_PORT>/tools
+Invoke-RestMethod http://127.0.0.1:<API_PORT>/models
 ```
 
 Execute a read-only tool:
@@ -78,16 +208,6 @@ Invoke-RestMethod `
   -Body "{}"
 ```
 
-Useful bounded process query:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://127.0.0.1:<API_PORT>/tools/list_processes/execute" `
-  -ContentType "application/json" `
-  -Body '{"limit": 5, "sort_by": "memory"}'
-```
-
 ## Test
 
 ```powershell
@@ -98,9 +218,9 @@ Invoke-RestMethod `
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-## Configuration
+Current local result: **106 tests passed**, Ruff clean, mypy clean, and `pip check` clean.
 
-Phase 0/1 reads only:
+## Configuration
 
 | Variable | Purpose |
 |---|---|
@@ -109,9 +229,25 @@ Phase 0/1 reads only:
 | `TIMEZONE` | Valid IANA timezone, for example `UTC` |
 | `API_HOST` | Loopback IP address only |
 | `API_PORT` | Non-privileged TCP port |
-| `AUDIT_LOG_PATH` | Local JSONL audit file; defaults to `var/audit.jsonl` |
+| `AUDIT_LOG_PATH` | Local JSONL tool-audit file; defaults to `var/audit.jsonl` |
+| `DEFAULT_MODEL_PROVIDER` | `gemini` or `ollama` |
+| `LOCAL_FALLBACK_ENABLED` | Allow Gemini failures to fall back to Ollama |
+| `OLLAMA_BASE_URL` | Loopback Ollama origin |
+| `OLLAMA_MODEL` | Installed Ollama model name |
+| `GEMINI_MODEL` | Gemini model name |
+| `GEMINI_API_KEY` | Gemini credential; must remain local and is never logged |
+| `MODEL_TIMEOUT_SECONDS` | Provider request timeout |
+| `MAX_TOOL_ITERATIONS` | Maximum model/tool loop iterations |
+| `MAX_TOOL_CALLS_PER_TURN` | Maximum tool calls in one chat turn |
+| `MEMORY_DB_PATH` | Local SQLite memory database |
+| `MEMORY_MAX_RESULTS` | Maximum retrieved memories per request |
+| `MEMORY_MIN_SCORE` | Minimum retrieval score |
+| `MEMORY_RETENTION_DAYS` | Retention for stale superseded records |
+| `MEMORY_WORKING_TTL_HOURS` | Default working-memory lifetime |
+| `MEMORY_CONTEXT_MAX_CHARS` | Maximum memory text inserted into the model prompt |
+| `MEMORY_AUTO_STORE_CHAT` | Store completed chat turns as episodic memory |
 
-The model, remote-access, and wake-word variables in `.env` are reserved for later phases and are intentionally ignored until those phases are authorized.
+The remote-access and wake-word variables in `.env` remain reserved for later phases and are intentionally ignored.
 
 ## Tool safety model
 
@@ -123,7 +259,7 @@ Every tool declares:
 - A risk level: `READ`, `LOW`, `CONFIRM`, or `CRITICAL`.
 - A timeout in seconds.
 
-The registry applies a Phase 1 policy that auto-allows only `READ` tools. `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet. The registry:
+The registry applies a policy that auto-allows only `READ` tools. `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet. The registry:
 
 1. Rejects unknown tools.
 2. Checks the declared risk level before execution.
@@ -133,26 +269,51 @@ The registry applies a Phase 1 policy that auto-allows only `READ` tools. `LOW`,
 6. Returns a structured result instead of leaking raw exceptions.
 7. Writes an audit record for every invocation.
 
-The Phase 1 tools are read-only. There is no shell execution, filesystem modification, process termination, browser automation, or remote control.
+The current tools are read-only. There is no shell execution, filesystem modification, process termination, browser automation, or remote control.
+
+## Memory safety
+
+- Memory is stored locally in SQLite.
+- Each record has a source, confidence, timestamps, and optional project context.
+- Identical active content is deduplicated.
+- Keyed corrections supersede the previous active value.
+- Working memory expires.
+- Expired and stale superseded records are cleaned at startup.
+- Hard deletion removes the content; the memory event log retains only a content-free action record.
+- Retrieved memory is explicitly marked as untrusted data in the model prompt.
+- The user can inspect, correct, export, and delete memory through the local API.
+- Chat episode auto-storage can be disabled with `MEMORY_AUTO_STORE_CHAT=false`.
 
 ## Audit logging
 
-Audit records are appended as JSON lines to `AUDIT_LOG_PATH` and include the tool name, risk level, permission decision, outcome, duration, and sanitized arguments. Sensitive-looking argument keys and long strings are redacted. Tool result payloads are not written to the audit log.
+Tool audit records are appended as JSON lines to `AUDIT_LOG_PATH` and include the tool name, risk level, permission decision, outcome, duration, and sanitized arguments. Sensitive-looking argument keys and long strings are redacted. Tool result payloads are not written to the audit log.
 
-The audit file is local and ignored by Git. It is not a substitute for operating-system auditing, and audit records are written after the invocation rather than before it.
+Memory mutations are recorded in the local SQLite `memory_events` table without storing deleted content. Audit files and local databases are ignored by Git.
 
 ## Security baseline
 
 - The API binds only to a loopback address.
-- No API keys are required.
-- No shell, filesystem, process-control, or browser automation is exposed.
-- Only read-only tools are enabled.
-- Tool permissions and audit logging are enforced in Phase 1.
-- The `.env` file is ignored by Git.
-- Do not use a public tunnel or expose the backend until the remote-access phase is approved and authentication is implemented.
+- Health checks work without AI credentials.
+- Gemini API keys are held in `SecretStr` settings and are not logged or returned by the API.
+- The model can request a tool, but the registry enforces permissions and validates inputs.
+- Tool results are treated as untrusted data.
+- Memory is local and bounded before insertion into model context.
+- The API is currently unauthenticated but loopback-bound. Do not expose it publicly or use a public tunnel until Phase 8 authentication and authorization are implemented.
+- Do not run the assistant with administrator privileges by default.
+
+## Known current limitations
+
+- No Gemini live request has been verified because `GEMINI_API_KEY` is not configured.
+- Ollama is installed but its service currently fails to start with a Windows paging-file error; no live Ollama model has been verified.
+- Runtime model selection is not persisted across restarts.
+- Chat responses are not streamed.
+- Memory embeddings are lightweight lexical hashing embeddings, not a deep semantic model; retrieval is brute-force over a bounded candidate set.
+- Retention cleanup runs at startup rather than on a schedule.
+- The desktop UI, voice, browser automation, integrations, and remote access do not exist yet.
+- The Tauri/Rust toolchain installation failed locally with installer exit code `3221225786`; Phase 4 desktop launch remains blocked until the toolchain is available.
 
 ## Documentation
 
-- `docs/phase-status.md` — implemented, tested, and known-limitation status.
-- `docs/README.md` — product vision draft; currently incomplete and retained for reference.
+- `docs/phase-status.md` — implemented, tested, blocked, and pending-sign-off status.
+- `docs/README.md` — product-vision draft; currently incomplete and retained for reference.
 - `AGENTS.md` — project constitution and development rules.

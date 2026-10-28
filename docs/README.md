@@ -4,10 +4,12 @@
 
 > A modular, local-first personal AI assistant for Windows, designed to combine natural voice interaction, desktop automation, persistent memory, productivity integrations, and secure mobile control.
 
-**Project status:** Phase 1 — Tool Registry (implementation verified; owner sign-off pending)  
+**Project status:** Phase 3 — Persistent Memory (implementation verified; owner sign-off pending)  
 **Platform:** Windows desktop, with Android companion planned  
 **Development approach:** Incremental, phase-gated development  
 **Primary objective:** Build a reliable, extensible personal AI assistant without sacrificing maintainability, privacy, or security.
+
+> **Implementation note:** Phases 0–3 are implemented. Phase 2's routing and tool-calling path is verified with deterministic providers; live Gemini/Ollama validation is blocked by missing provider configuration and a local Ollama startup failure. Phase 4 desktop work is next. See `docs/phase-status.md` for exact verification and limitations.
 
 ---
 

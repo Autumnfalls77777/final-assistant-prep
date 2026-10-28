@@ -2,11 +2,19 @@
 
 ## Current Phase
 
-Phase 1 — Tool Registry and Windows Automation
+Phase 3 — Persistent Memory
 
-**Implementation status:** Phase 0 and Phase 1 are implemented and locally verified.  
-**Authorization:** Both phases were authorized by the owner.  
-**Owner sign-off:** Pending. This file does not mark either phase as owner-verified.
+**Implementation status:** Phases 0–3 are implemented and locally verified. Phase 2's live cloud/local provider path is blocked by missing provider configuration, but its routing and tool-calling path is covered by deterministic integration tests.  
+**Authorization:** Phases 0–3 were authorized by the owner.  
+**Owner sign-off:** Pending. This file does not mark any phase as owner-verified.
+
+| Phase | Status | Local verification |
+|---|---|---|
+| Phase 0 — Foundation | Implemented | Passed |
+| Phase 1 — Tool registry | Implemented | Passed |
+| Phase 2 — AI orchestration | Implemented; live provider check blocked | Deterministic integration passed |
+| Phase 3 — Persistent memory | Implemented | Passed, including restart persistence |
+| Phase 4 — Desktop interface | Not started | Pending |
 
 ---
 
@@ -28,15 +36,6 @@ Phase 1 — Tool Registry and Windows Automation
 - [x] `.gitignore` protecting `.env`, the virtual environment, caches, local data, and future frontend artifacts.
 - [x] `.env.example` with safe placeholders only.
 - [x] Root `README.md` with setup, run, test, and security instructions.
-
-### Phase 0 verification
-
-- Initial Phase 0 test run: **18 passed**.
-- Live server check: `GET /health` returned `200` with `status=ok`.
-- Default `.env` configuration also started successfully and served `/health` and `/tools` on loopback.
-- Listener check: `127.0.0.1` only.
-- Invalid configuration check: `API_HOST=0.0.0.0` exited nonzero and was rejected by validation.
-- `.env` is ignored by Git; `.env.example` is not ignored.
 
 ---
 
@@ -61,155 +60,237 @@ Phase 1 — Tool Registry and Windows Automation
   - `get_battery_status`
 - [x] Tool discovery endpoint: `GET /tools`.
 - [x] Tool execution endpoint: `POST /tools/{tool_name}/execute`.
-- [x] Tests for success, invalid input, unknown tools, permission denial, timeouts, execution failures, invalid tool output, audit redaction, and API error mapping.
+- [x] Tools remain in the separate `backend/src/jarvis/tools/` package and are registered at application startup by `build_default_registry()` in `main.py`.
 
-### Phase 1 verification
+---
 
-Final automated checks:
+## Phase 2 — AI Orchestration
+
+**Status:** Implemented; deterministic integration tests pass. Live Gemini verification is blocked by a missing `GEMINI_API_KEY`. Live Ollama verification is blocked by the local service failing to start. Owner sign-off pending.
+
+### Completed
+
+- [x] Direct Gemini `generateContent` adapter using `httpx`.
+  - API key sent in the `x-goog-api-key` header, not the URL.
+  - Function declarations use a Gemini-compatible JSON-schema subset.
+  - Function calls and function responses are normalized.
+- [x] Direct Ollama `/api/chat` adapter.
+  - Supports text and tool calls.
+  - Health check uses `/api/tags` and reports a missing configured model.
+- [x] Provider-neutral chat/tool schemas.
+- [x] `ModelRouter` with:
+  - Gemini as the default primary provider.
+  - Optional Ollama fallback when Gemini fails.
+  - Runtime provider switching through the API.
+  - Safe provider health reporting without exposing credentials.
+- [x] Gemini primary / Ollama fallback behavior is covered by deterministic tests.
+- [x] Bounded tool-calling orchestrator:
+  - Executes tools only through the existing permissioned registry.
+  - Feeds structured tool results back to the model.
+  - Enforces maximum tool iterations and maximum tool calls.
+  - Returns the provider used, providers attempted, tool results, and execution verification.
+  - Adds a factual warning when a tool fails.
+- [x] Chat endpoint: `POST /chat`.
+- [x] Model discovery endpoint: `GET /models`.
+- [x] Runtime selection endpoint: `PUT /models/active`.
+- [x] System prompt treats tool output as untrusted data and prohibits claiming an unverified success.
+- [x] Phase 3 memory context is retrieved before the model call and bounded before insertion into the prompt.
+
+### Phase 2 verification
+
+The orchestration acceptance path was verified with deterministic provider doubles:
 
 ```text
-pytest -q                        44 passed
+User request
+  -> provider selects a registered READ tool
+  -> registry validates and executes it
+  -> structured result is returned to the provider
+  -> final answer is returned with execution_verified=true
+```
+
+Failure paths verified:
+
+- Unknown tool -> structured `not_found`, `execution_verified=false`.
+- Permission-denied tool -> structured `permission_denied`, not executed.
+- Gemini failure -> Ollama fallback when enabled.
+- Both providers fail -> `503`, no fabricated answer.
+- Tool-call and iteration limits stop the loop truthfully.
+
+### Live provider limitation
+
+The live `.env` currently has no `GEMINI_API_KEY`. The model status endpoint therefore truthfully reports:
+
+```text
+gemini: configured=false, available=false
+ollama: configured=true, available=false (Ollama is not reachable)
+```
+
+Ollama is installed, but starting its service currently fails with a Windows paging-file error. No local model could be pulled or tested. The `/chat` endpoint returned `503` rather than inventing a response. This is the correct safe behavior.
+
+---
+
+## Phase 3 — Persistent Memory
+
+**Status:** Implemented and locally verified, including a restart persistence check. Owner sign-off pending.
+
+### Completed
+
+- [x] SQLite-backed local memory store at `MEMORY_DB_PATH`.
+- [x] Memory kinds: `personal`, `project`, `episodic`, `working`, `semantic`.
+- [x] Structured records with:
+  - Source, confidence, project, optional key, metadata.
+  - Created/updated/accessed timestamps.
+  - Expiry, supersession, and active state.
+- [x] Local deterministic hashing embeddings (384 dimensions, unigrams + bigrams).
+- [x] Vector retrieval combined with lexical token coverage.
+- [x] Bounded retrieval results and bounded memory context length.
+- [x] Exact-content deduplication.
+- [x] Keyed correction that supersedes the previous active value.
+- [x] Working-memory TTL and startup expiry cleanup.
+- [x] Retention cleanup for stale superseded records.
+- [x] Content-free memory audit events.
+- [x] Hard deletion of memory content while retaining an event without content.
+- [x] Automatic episodic memory storage for completed chat turns.
+- [x] Memory inspection and export.
+- [x] API endpoints:
+  - `POST /memory`
+  - `GET /memory`
+  - `GET /memory/search`
+  - `GET /memory/stats`
+  - `GET /memory/events`
+  - `GET /memory/export`
+  - `GET /memory/{memory_id}`
+  - `PATCH /memory/{memory_id}`
+  - `DELETE /memory/{memory_id}`
+
+### Phase 3 verification
+
+- Unit tests cover persistence, deduplication, keyed supersession, retrieval relevance, filtering, expiry, correction, deletion, stats, events, export, and prompt-context bounds.
+- Live server check created a memory, searched for it, corrected it, created a second memory, restarted the backend, and confirmed both records survived.
+- The live search for `persistence` returned the persisted record.
+- The live DELETE returned `204`.
+- The live server was stopped after verification; its database and audit files were kept outside the repository.
+
+---
+
+## Final Automated Checks
+
+At the time of this update:
+
+```text
+pytest -q                        106 passed
 ruff check .                     All checks passed
-ruff format --check .            38 files already formatted
-mypy                             Success: no issues found in 21 source files
+ruff format --check .            54 files already formatted
+mypy                             Success: no issues found in 38 source files
 pip check                        No broken requirements found
 ```
 
-Live local server verification:
+Live loopback checks:
 
 ```text
 GET  /health                              200, status=ok
 GET  /tools                               200, 4 read-only tools
 POST /tools/get_system_info/execute       200, ok=true
-POST /tools/list_processes/execute        200, ok=true, 3 processes returned
-POST /tools/get_disk_usage/execute        200, ok=true
-POST /tools/get_battery_status/execute    200, ok=true
-POST /tools/list_processes/execute        invalid limit -> 422
-POST /tools/missing/execute               unknown tool -> 404
-Listener                                  127.0.0.1 only
-Audit records written                     6
+GET  /models                              200, Gemini unconfigured; Ollama unreachable
+POST /chat                                503, no provider available; no fabricated answer
+POST /memory                              201, record created
+GET  /memory/search?q=preferred%20editor  200, relevant record returned
+PATCH /memory/{id}                        200, correction persisted
+Restart backend                           memory records persisted
+DELETE /memory/{id}                       204
 ```
 
-The live server was started on a deliberately chosen local verification port, queried through loopback, and stopped. It was not exposed publicly.
-
-### Manual verification instructions
-
-From the repository root:
-
-```powershell
-.\.venv\Scripts\python.exe -m jarvis
-```
-
-In another terminal, using the configured local port:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:<API_PORT>/health
-Invoke-RestMethod http://127.0.0.1:<API_PORT>/tools
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:<API_PORT>/tools/get_system_info/execute" -ContentType "application/json" -Body "{}"
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:<API_PORT>/tools/list_processes/execute" -ContentType "application/json" -Body '{"limit": 5, "sort_by": "memory"}'
-```
-
-Check the audit file:
-
-```powershell
-Get-Content var\audit.jsonl -Tail 5
-```
-
-Stop the server with `Ctrl+C`. Confirm it is loopback-bound:
-
-```powershell
-Get-NetTCPConnection -State Listen |
-  Where-Object LocalPort -eq <API_PORT> |
-  Select-Object LocalAddress, LocalPort
-```
-
-Expected result: `127.0.0.1`.
-
-Do not use a public tunnel or expose the backend until the remote-access phase is approved and authentication is implemented.
+The live server was loopback-bound and was not exposed publicly.
 
 ---
 
 ## Changed Files
 
-### Phase 0
+### Phase 2
 
-- `.gitignore`
-- `.env.example`
-- `pyproject.toml`
-- `README.md`
-- `backend/src/jarvis/__init__.py`
-- `backend/src/jarvis/config.py`
-- `backend/src/jarvis/logging.py`
+- `backend/src/jarvis/models/schemas.py`
+- `backend/src/jarvis/models/base.py`
+- `backend/src/jarvis/models/errors.py`
+- `backend/src/jarvis/models/gemini.py`
+- `backend/src/jarvis/models/ollama.py`
+- `backend/src/jarvis/models/router.py`
+- `backend/src/jarvis/models/factory.py`
+- `backend/src/jarvis/models/prompts.py`
+- `backend/src/jarvis/models/orchestrator.py`
+- `backend/src/jarvis/api/chat.py`
+- `backend/src/jarvis/api/models.py`
 - `backend/src/jarvis/main.py`
-- `backend/src/jarvis/__main__.py`
-- `backend/src/jarvis/api/__init__.py`
-- `backend/src/jarvis/api/health.py`
-- `backend/tests/conftest.py`
-- `backend/tests/test_config.py`
-- `backend/tests/test_health.py`
-- `backend/tests/test_logging.py`
-- `backend/tests/test_main.py`
+- `backend/src/jarvis/config.py`
+- `pyproject.toml` (added `httpx`)
+- `backend/tests/test_gemini_provider.py`
+- `backend/tests/test_ollama_provider.py`
+- `backend/tests/test_model_router.py`
+- `backend/tests/test_orchestrator.py`
+- `backend/tests/test_chat_api.py`
 
-### Phase 1
+### Phase 3
 
-- `backend/src/jarvis/api/tools.py`
-- `backend/src/jarvis/tools/__init__.py`
-- `backend/src/jarvis/tools/base.py`
-- `backend/src/jarvis/tools/policy.py`
-- `backend/src/jarvis/tools/errors.py`
-- `backend/src/jarvis/tools/models.py`
-- `backend/src/jarvis/tools/audit.py`
-- `backend/src/jarvis/tools/registry.py`
-- `backend/src/jarvis/tools/builtin.py`
-- `backend/src/jarvis/tools/windows/__init__.py`
-- `backend/src/jarvis/tools/windows/system_info.py`
-- `backend/src/jarvis/tools/windows/disk_usage.py`
-- `backend/src/jarvis/tools/windows/processes.py`
-- `backend/src/jarvis/tools/windows/battery.py`
-- `backend/tests/test_registry.py`
-- `backend/tests/test_builtin_tools.py`
-- `backend/tests/test_tools_api.py`
-- `README.md` updated with Phase 1 usage and safety details.
+- `backend/src/jarvis/memory/schemas.py`
+- `backend/src/jarvis/memory/embeddings.py`
+- `backend/src/jarvis/memory/service.py`
+- `backend/src/jarvis/memory/__init__.py`
+- `backend/src/jarvis/api/memory.py`
+- `backend/src/jarvis/main.py`
+- `backend/src/jarvis/config.py`
+- `backend/tests/test_memory_service.py`
+- `backend/tests/test_memory_api.py`
+- `backend/tests/support.py`
 
-### Documentation
+### Documentation and configuration
 
-- `docs/README.md` — added a status banner only; the incomplete body was preserved.
-- `docs/phase-status.md` — this file.
+- `README.md`
+- `.env.example`
+- `docs/phase-status.md`
+- `docs/README.md` status banner
 
-### Unchanged
+### Preserved
 
+- `.env` — not modified, not committed.
 - `AGENTS.md`
-- `.env`
 - `opencode.json`
-- All five `.opencode/skills/*/SKILL.md` files
-- Git history (no commits were created)
+- `.opencode/skills/*/SKILL.md`
 
 ---
 
 ## Known Issues and Limitations
 
-1. **Owner sign-off is pending** for both Phase 0 and Phase 1; both phases were authorized.
-2. Only read-only tools are enabled. `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet.
-3. The local API is unauthenticated but loopback-bound. Remote authentication and authorization are deferred to Phase 8.
-4. Timeouts bound the asynchronous wait. A blocking worker thread may continue briefly after the timeout response.
-5. Audit records are written after invocation, not before it. A process crash during a tool call could leave no completed audit record. No audit-log rotation is implemented.
-6. Audit redaction is key-based and best-effort. Tools must not accept secrets in generic, non-sensitive-looking fields.
-7. `docs/README.md` remains an incomplete product-vision draft; the root `README.md` is authoritative.
-8. No AI/model orchestration, memory, desktop UI, voice, browser automation, integrations, or remote access exists yet.
-9. Rust/Tauri tooling is not installed; it is deferred to Phase 4.
-10. Ollama is installed but not running; it is deferred to Phase 2.
-11. The global Python environment has unrelated dependency conflicts. The project uses `.venv`; global packages are not project dependencies.
-12. No Git commit or remote has been created. Version-control actions require owner authorization.
+1. **Owner sign-off is pending** for Phases 0–3. Local implementation verification does not equal owner acceptance.
+2. **Gemini live validation is blocked** because no `GEMINI_API_KEY` is configured. The adapter and routing are tested with deterministic doubles.
+3. **Ollama live validation is blocked** because the installed service fails to start with a Windows paging-file error. No model could be pulled or run.
+4. **Runtime provider selection is in-memory only.** It resets to `DEFAULT_MODEL_PROVIDER` when the backend restarts.
+5. **No streaming responses.** `/chat` waits for a complete model response.
+6. **Memory embeddings are lightweight lexical hashing embeddings**, not a deep semantic model. Retrieval is brute-force over up to 2,000 active records. The embedder interface can be replaced later.
+7. **Retention cleanup runs at startup**, not on a scheduled background job.
+8. **Chat episode auto-storage is enabled by default.** It can be disabled with `MEMORY_AUTO_STORE_CHAT=false`.
+9. **The local API is unauthenticated but loopback-bound.** Remote authentication and authorization remain Phase 8 work.
+10. **Only `READ` tools are auto-allowed.** `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet.
+11. **Desktop UI is not implemented yet.** Phase 4 remains next.
+12. **Rust/Tauri installation failed locally** with installer exit code `3221225786` (`STATUS_DLL_INIT_FAILED`). This must be resolved before a real Tauri window can be built.
+13. `docs/README.md` is still an incomplete product-vision draft; the root `README.md` and this file are authoritative for current setup and status.
 
 ---
 
 ## Next Task
 
-Owner review and verification of Phase 0 and Phase 1.
+Phase 4 — Desktop interface:
 
-Do **not** begin Phase 2 — AI orchestration and model integration — until the owner explicitly authorizes it.
+- Tauri 2 + React + TypeScript + Vite.
+- Floating orb, sidebar, chat, command input, activity feed, system status.
+- Memory, Automations, and Settings screens.
+- Demo interactions without real AI calls.
+- Backend communication only for non-AI status/health where safe.
+- Verify the real Windows desktop window launches.
+
+Do not begin Phase 5 voice work until Phase 4 is verified.
 
 ## Owner Approval
 
 - Phase 0: **Authorized; local verification complete; owner sign-off pending.**
 - Phase 1: **Authorized; local verification complete; owner sign-off pending.**
+- Phase 2: **Authorized; implementation verified with deterministic providers; live provider validation blocked; owner sign-off pending.**
+- Phase 3: **Authorized; local verification and restart persistence complete; owner sign-off pending.**
