@@ -1,0 +1,36 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Local runtime data and logs
+var/
+*.log
+*.sqlite3
+*.db
+
+# Future frontend/desktop artifacts
+node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+mobile/node_modules/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
