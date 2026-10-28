@@ -11,7 +11,7 @@ import pytest
 
 from jarvis.models.errors import ProviderResponseError
 from jarvis.models.ollama import OllamaProvider
-from jarvis.models.schemas import ChatMessage, ChatRole, ToolCall
+from jarvis.models.schemas import ChatMessage, ChatRole, TokenUsage, ToolCall
 from support import make_tool_info
 
 
@@ -39,7 +39,12 @@ def test_ollama_text_completion_and_request_shape() -> None:
         assert payload["tools"][0]["function"]["name"] == "echo"
         return httpx.Response(
             200,
-            json={"message": {"role": "assistant", "content": "Hi there"}, "done_reason": "stop"},
+            json={
+                "message": {"role": "assistant", "content": "Hi there"},
+                "done_reason": "stop",
+                "prompt_eval_count": 17,
+                "eval_count": 5,
+            },
         )
 
     provider = _provider(handler)
@@ -52,6 +57,11 @@ def test_ollama_text_completion_and_request_shape() -> None:
     assert result.text == "Hi there"
     assert result.tool_calls == []
     assert result.finish_reason == "stop"
+    assert result.usage == TokenUsage(
+        prompt_tokens=17,
+        completion_tokens=5,
+        total_tokens=22,
+    )
 
 
 def test_ollama_tool_call_arguments_are_normalized() -> None:

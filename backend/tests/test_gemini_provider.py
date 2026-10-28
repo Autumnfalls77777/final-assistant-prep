@@ -12,7 +12,7 @@ from pydantic import SecretStr
 
 from jarvis.models.errors import ProviderResponseError, ProviderUnavailableError
 from jarvis.models.gemini import GeminiProvider
-from jarvis.models.schemas import ChatMessage, ChatRole, ToolCall
+from jarvis.models.schemas import ChatMessage, ChatRole, TokenUsage, ToolCall
 from support import make_tool_info
 
 
@@ -46,7 +46,13 @@ def test_gemini_text_completion_and_request_shape() -> None:
                         "content": {"parts": [{"text": "Hi there"}]},
                         "finishReason": "STOP",
                     }
-                ]
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 12,
+                    "candidatesTokenCount": 4,
+                    "thoughtsTokenCount": 2,
+                    "totalTokenCount": 18,
+                },
             },
         )
 
@@ -60,6 +66,11 @@ def test_gemini_text_completion_and_request_shape() -> None:
     assert result.text == "Hi there"
     assert result.tool_calls == []
     assert result.finish_reason == "STOP"
+    assert result.usage == TokenUsage(
+        prompt_tokens=12,
+        completion_tokens=6,
+        total_tokens=18,
+    )
 
 
 def test_gemini_function_call_is_normalized() -> None:

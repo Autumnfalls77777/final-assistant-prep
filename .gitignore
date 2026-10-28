@@ -27,6 +27,7 @@ var/
 node_modules/
 desktop/dist/
 desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
 mobile/node_modules/
 
 # Editor and OS files

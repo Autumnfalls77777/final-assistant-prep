@@ -22,6 +22,8 @@ ENV_KEYS = (
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
     "MEMORY_DB_PATH",
+    "USAGE_DB_PATH",
+    "LOCAL_DAILY_TOKEN_BUDGET",
 )
 
 
@@ -49,6 +51,8 @@ def test_safe_defaults() -> None:
     assert settings.ollama_model
     assert settings.memory_db_path.name == "jarvis.db"
     assert settings.memory_auto_store_chat is True
+    assert settings.usage_db_path.name == "usage.db"
+    assert settings.local_daily_token_budget == 1_000_000
 
 
 def test_environment_overrides_and_normalization(monkeypatch: pytest.MonkeyPatch) -> None:

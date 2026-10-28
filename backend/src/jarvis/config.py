@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     max_tool_iterations: int = Field(default=3, ge=1, le=6)
     max_tool_calls_per_turn: int = Field(default=8, ge=1, le=20)
 
+    usage_db_path: Path = Path("var/usage.db")
+    local_daily_token_budget: int = Field(default=1_000_000, ge=1_000, le=100_000_000)
+
     memory_db_path: Path = Path("var/jarvis.db")
     memory_max_results: int = Field(default=5, ge=1, le=10)
     memory_min_score: float = Field(default=0.12, ge=0.0, le=1.0)

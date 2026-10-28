@@ -24,6 +24,8 @@ def settings(tmp_path: Path) -> Settings:
         api_host="127.0.0.1",
         api_port=8765,
         audit_log_path=tmp_path / "audit.jsonl",
+        usage_db_path=tmp_path / "usage.db",
+        local_daily_token_budget=1_000_000,
         memory_db_path=tmp_path / "jarvis.db",
         default_model_provider="gemini",
         local_fallback_enabled=True,

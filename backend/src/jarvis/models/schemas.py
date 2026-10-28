@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,12 +44,30 @@ class ChatMessage(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
 
 
+class TokenUsage(BaseModel):
+    """Provider-neutral token accounting for one model request."""
+
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+
+    def merged(self, other: TokenUsage) -> TokenUsage:
+        """Return combined usage across a multi-step turn."""
+
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
+
 class ModelResponse(BaseModel):
     """Normalized model output."""
 
     text: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     finish_reason: str | None = None
+    usage: TokenUsage = Field(default_factory=TokenUsage)
 
 
 class ProviderHealth(BaseModel):
@@ -112,3 +130,20 @@ class ChatResponse(BaseModel):
     iterations: int
     conversation_id: str
     warnings: list[str] = Field(default_factory=list)
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+
+
+class UsageSnapshot(BaseModel):
+    """Local daily token budget state for one provider."""
+
+    provider: ProviderName
+    date: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    requests: int = 0
+    budget_tokens: int
+    remaining_tokens: int
+    percent_used: float
+    scope: Literal["local"] = "local"
+    note: str

@@ -2,8 +2,8 @@
 
 A modular, local-first personal AI assistant for Windows.
 
-**Current implementation:** Phases 0–3 — foundation, read-only tools, Gemini/Ollama orchestration, and persistent local memory.  
-**Owner sign-off:** Pending. Local implementation verification is complete; Phase 2 live-provider validation is blocked by missing provider configuration.
+**Current implementation:** Phases 0–3 — foundation, read-only tools, Gemini/Ollama orchestration, and persistent local memory. The Phase 4 browser UI is implemented and live-verified against Gemini; the native Tauri shell is still blocked by the local Windows toolchain.  
+**Owner sign-off:** Pending. Local implementation and live Gemini verification are complete.
 
 ## Current scope
 
@@ -32,10 +32,15 @@ The backend currently provides:
 - Memory deduplication, correction, expiry, retention cleanup, inspection, export, and deletion.
 - Memory endpoints under `/memory`.
 - Automatic episodic storage of completed chat turns.
+- A browser-verified React desktop UI in `desktop/`:
+  - Single animated JARVIS orb with idle, listening, thinking, and speaking states.
+  - Live chat through the backend and Gemini.
+  - Real provider token counts and a persistent local daily usage meter.
+  - Focused desktop layout with a narrow CORS allowlist.
 
 The following are intentionally **not** implemented yet:
 
-- Desktop UI — Phase 4.
+- Native Tauri window packaging — the browser UI is ready, but the local MSVC/Windows SDK toolchain is not.
 - Voice — Phase 5.
 - Browser, screen, and coding tools — Phase 6.
 - Calendar, email, and messaging — Phase 7.
@@ -49,7 +54,7 @@ The following are intentionally **not** implemented yet:
 - Python 3.12
 - Git
 
-Node.js, Rust, and the Tauri CLI are required for the Phase 4 desktop application. They are not required to run the backend.
+Node.js is required to run or build the browser UI. Rust and the Tauri CLI are required only for the native desktop window, which is not ready yet.
 
 ## Setup
 
@@ -71,6 +76,19 @@ Copy `.env.example` to `.env` and fill in only the values you need. The real `.e
 
 The server binds to the validated loopback address and port from `.env`. Do not expose it publicly.
 
+### Desktop interface
+
+In a second terminal:
+
+```powershell
+Set-Location "E:\Programming\OKAY FINAL AI I MAKE\desktop"
+npm run dev
+```
+
+Open `http://localhost:1420`. The UI calls the backend at `http://127.0.0.1:8765` and requires the backend to be running. The browser UI is verified; the native Tauri window is blocked by the local Windows toolchain.
+
+The UI uses real token counts returned by the provider. Because Gemini API keys do not expose a live quota endpoint, the meter tracks usage against a local daily budget (`LOCAL_DAILY_TOKEN_BUDGET`, default 1,000,000) and stores it in `var/usage.db`.
+
 ## Model providers
 
 ### Gemini primary
@@ -80,7 +98,7 @@ Add a Gemini API key to `.env`:
 ```dotenv
 DEFAULT_MODEL_PROVIDER=gemini
 GEMINI_API_KEY=your-key-here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3-flash-preview
 LOCAL_FALLBACK_ENABLED=true
 ```
 
@@ -218,7 +236,7 @@ Invoke-RestMethod `
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-Current local result: **106 tests passed**, Ruff clean, mypy clean, and `pip check` clean.
+Current local result: **113 tests passed**, Ruff clean, Ruff format clean, mypy clean, `pip check` clean, and `npm run build` passes in `desktop/`.
 
 ## Configuration
 
@@ -246,6 +264,8 @@ Current local result: **106 tests passed**, Ruff clean, mypy clean, and `pip che
 | `MEMORY_WORKING_TTL_HOURS` | Default working-memory lifetime |
 | `MEMORY_CONTEXT_MAX_CHARS` | Maximum memory text inserted into the model prompt |
 | `MEMORY_AUTO_STORE_CHAT` | Store completed chat turns as episodic memory |
+| `USAGE_DB_PATH` | Local SQLite daily token ledger; defaults to `var/usage.db` |
+| `LOCAL_DAILY_TOKEN_BUDGET` | Local daily token budget used by the UI meter; default `1,000,000` |
 
 The remote-access and wake-word variables in `.env` remain reserved for later phases and are intentionally ignored.
 
@@ -303,14 +323,17 @@ Memory mutations are recorded in the local SQLite `memory_events` table without 
 
 ## Known current limitations
 
-- No Gemini live request has been verified because `GEMINI_API_KEY` is not configured.
+- Live Gemini chat has been verified with `gemini-3-flash-preview`. The model name may change or be retired; update `GEMINI_MODEL` if the provider reports it unavailable.
+- The usage meter is a local budget ledger, not a live Google quota. Gemini API keys do not expose remaining quota through this API.
 - Ollama is installed but its service currently fails to start with a Windows paging-file error; no live Ollama model has been verified.
 - Runtime model selection is not persisted across restarts.
 - Chat responses are not streamed.
 - Memory embeddings are lightweight lexical hashing embeddings, not a deep semantic model; retrieval is brute-force over a bounded candidate set.
 - Retention cleanup runs at startup rather than on a schedule.
-- The desktop UI, voice, browser automation, integrations, and remote access do not exist yet.
-- The Tauri/Rust toolchain installation failed locally with installer exit code `3221225786`; Phase 4 desktop launch remains blocked until the toolchain is available.
+- The browser UI is implemented and verified; the native Tauri window is not available yet because the local MSVC/Windows SDK toolchain is incomplete.
+- “Listening” in the UI currently means chat-input focus/typing, not microphone capture. Voice is Phase 5.
+- Voice, browser automation, integrations, and remote access do not exist yet.
+- The Tauri/Rust toolchain installation failed locally with installer exit code `3221225786`; Phase 4 native launch remains blocked until the toolchain is available.
 
 ## Documentation
 

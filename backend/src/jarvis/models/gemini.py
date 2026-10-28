@@ -19,6 +19,7 @@ from .schemas import (
     ModelResponse,
     ProviderHealth,
     ProviderName,
+    TokenUsage,
     ToolCall,
 )
 
@@ -241,7 +242,35 @@ class GeminiProvider(ModelProvider):
             text="".join(texts).strip(),
             tool_calls=tool_calls,
             finish_reason=str(finish_reason) if finish_reason is not None else None,
+            usage=_parse_usage(data),
         )
+
+
+def _parse_usage(data: dict[str, Any]) -> TokenUsage:
+    """Normalize Gemini usageMetadata without inventing missing counts."""
+
+    metadata = data.get("usageMetadata")
+    if not isinstance(metadata, dict):
+        return TokenUsage()
+
+    prompt_tokens = _non_negative_int(metadata.get("promptTokenCount"))
+    candidates_tokens = _non_negative_int(metadata.get("candidatesTokenCount"))
+    thoughts_tokens = _non_negative_int(metadata.get("thoughtsTokenCount"))
+    completion_tokens = candidates_tokens + thoughts_tokens
+    total_tokens = _non_negative_int(metadata.get("totalTokenCount"))
+    if total_tokens < prompt_tokens + completion_tokens:
+        total_tokens = prompt_tokens + completion_tokens
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+    )
+
+
+def _non_negative_int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if value > 0 else 0
 
 
 _DROP_SCHEMA_KEYS = {"title", "additionalProperties", "$schema", "default"}

@@ -18,6 +18,7 @@ from .schemas import (
     ModelResponse,
     ProviderHealth,
     ProviderName,
+    TokenUsage,
     ToolCall,
 )
 
@@ -210,8 +211,21 @@ class OllamaProvider(ModelProvider):
             raise ProviderResponseError(ProviderName.OLLAMA, "Ollama returned no usable content.")
 
         finish_reason = data.get("done_reason")
+        prompt_tokens = _non_negative_int(data.get("prompt_eval_count"))
+        completion_tokens = _non_negative_int(data.get("eval_count"))
         return ModelResponse(
             text=text.strip(),
             tool_calls=tool_calls,
             finish_reason=str(finish_reason) if finish_reason is not None else None,
+            usage=TokenUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+            ),
         )
+
+
+def _non_negative_int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if value > 0 else 0

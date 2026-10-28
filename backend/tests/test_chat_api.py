@@ -13,7 +13,7 @@ from jarvis.main import create_app
 from jarvis.memory.service import MemoryService
 from jarvis.models.errors import ProviderUnavailableError
 from jarvis.models.router import ModelRouter
-from jarvis.models.schemas import ModelResponse, ProviderName, ToolCall
+from jarvis.models.schemas import ModelResponse, ProviderName, TokenUsage, ToolCall
 from support import ScriptedProvider, build_test_registry
 
 
@@ -82,6 +82,43 @@ def test_switch_provider_and_chat(settings: Settings, tmp_path: Path) -> None:
     assert body["provider"] == "ollama"
     assert body["providers_used"] == ["ollama"]
     assert body["fallback_used"] is False
+
+
+def test_chat_reports_usage_and_updates_daily_ledger(settings: Settings, tmp_path: Path) -> None:
+    provider = ScriptedProvider(
+        [
+            ModelResponse(
+                text="Usage answer.",
+                usage=TokenUsage(
+                    prompt_tokens=120,
+                    completion_tokens=30,
+                    total_tokens=150,
+                ),
+            )
+        ],
+        name=ProviderName.GEMINI,
+    )
+
+    with _client(settings, tmp_path, [provider]) as client:
+        chat_response = client.post("/chat", json={"message": "hello"})
+        usage_response = client.get("/usage")
+
+    assert chat_response.status_code == 200
+    assert chat_response.json()["usage"] == {
+        "prompt_tokens": 120,
+        "completion_tokens": 30,
+        "total_tokens": 150,
+    }
+    assert usage_response.status_code == 200
+    usage = usage_response.json()
+    assert usage["provider"] == "gemini"
+    assert usage["total_tokens"] == 150
+    assert usage["prompt_tokens"] == 120
+    assert usage["completion_tokens"] == 30
+    assert usage["requests"] == 1
+    assert usage["budget_tokens"] == 1_000_000
+    assert usage["remaining_tokens"] == 999_850
+    assert usage["scope"] == "local"
 
 
 def test_chat_executes_tool_and_stores_episode(settings: Settings, tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from jarvis.models.schemas import (
     ChatRole,
     ModelResponse,
     ProviderName,
+    TokenUsage,
     ToolCall,
 )
 from support import (
@@ -59,6 +60,34 @@ def test_tool_call_is_executed_and_reported(tmp_path: Path) -> None:
     assert response.tool_results[0].data == {"value": "hello"}
     assert response.execution_verified is True
     assert response.warnings == []
+
+
+def test_usage_is_aggregated_across_tool_iterations(tmp_path: Path) -> None:
+    provider = ScriptedProvider(
+        [
+            ModelResponse(
+                tool_calls=[ToolCall(id="call-1", name="echo", arguments={"value": "hello"})],
+                usage=TokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110),
+            ),
+            ModelResponse(
+                text="Done.",
+                usage=TokenUsage(prompt_tokens=140, completion_tokens=20, total_tokens=160),
+            ),
+        ]
+    )
+    orchestrator = AgentOrchestrator(
+        build_test_registry(tmp_path),
+        _router(provider),
+        auto_store_chat=False,
+    )
+
+    response = asyncio.run(orchestrator.chat(ChatRequest(message="echo hello")))
+
+    assert response.usage == TokenUsage(
+        prompt_tokens=240,
+        completion_tokens=30,
+        total_tokens=270,
+    )
 
 
 def test_failed_tool_is_reported_truthfully(tmp_path: Path) -> None:

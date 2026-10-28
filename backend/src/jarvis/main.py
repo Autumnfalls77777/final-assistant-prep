@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .api.chat import router as chat_router
@@ -15,6 +16,7 @@ from .api.health import router as health_router
 from .api.memory import router as memory_router
 from .api.models import router as models_router
 from .api.tools import router as tools_router
+from .api.usage import router as usage_router
 from .config import Settings, get_settings
 from .logging import configure_logging
 from .memory.service import MemoryService
@@ -24,6 +26,15 @@ from .models.router import ModelRouter
 from .tools.audit import AuditLogger
 from .tools.builtin import build_default_registry
 from .tools.registry import ToolRegistry
+from .usage import UsageStore
+
+_DESKTOP_ORIGINS = [
+    "http://localhost:1420",
+    "http://127.0.0.1:1420",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +59,16 @@ def create_app(
         working_ttl_hours=resolved_settings.memory_working_ttl_hours,
     )
     provider_router = model_router or build_model_router(resolved_settings)
+    usage_store = UsageStore(
+        db_path=resolved_settings.usage_db_path,
+        budget_tokens=resolved_settings.local_daily_token_budget,
+        timezone_name=resolved_settings.timezone,
+    )
     orchestrator = AgentOrchestrator(
         registry=tool_registry,
         router=provider_router,
         memory=memory_service,
+        usage_store=usage_store,
         max_tool_iterations=resolved_settings.max_tool_iterations,
         max_tool_calls=resolved_settings.max_tool_calls_per_turn,
         memory_max_results=resolved_settings.memory_max_results,
@@ -63,6 +80,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await tool_registry.audit_logger.ensure_ready()
         await asyncio.to_thread(memory_service.initialize)
+        await asyncio.to_thread(usage_store.initialize)
         logger.info(
             "Starting JARVIS backend version=%s environment=%s tools=%d "
             "provider=%s fallback_enabled=%s memory=%s",
@@ -86,16 +104,25 @@ def create_app(
         ),
         lifespan=lifespan,
     )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_DESKTOP_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type"],
+    )
     application.state.settings = resolved_settings
     application.state.tool_registry = tool_registry
     application.state.memory_service = memory_service
     application.state.model_router = provider_router
     application.state.orchestrator = orchestrator
+    application.state.usage_store = usage_store
     application.include_router(health_router)
     application.include_router(tools_router)
     application.include_router(models_router)
     application.include_router(chat_router)
     application.include_router(memory_router)
+    application.include_router(usage_router)
     return application
 
 

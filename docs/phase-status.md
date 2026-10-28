@@ -2,19 +2,19 @@
 
 ## Current Phase
 
-Phase 3 — Persistent Memory
+Phase 4 — Desktop Interface
 
-**Implementation status:** Phases 0–3 are implemented and locally verified. Phase 2's live cloud/local provider path is blocked by missing provider configuration, but its routing and tool-calling path is covered by deterministic integration tests.  
-**Authorization:** Phases 0–3 were authorized by the owner.  
+**Implementation status:** Phases 0–3 are implemented and locally verified. The Phase 4 browser UI is implemented and live-verified against Gemini. The native Tauri window is still blocked by the local Windows toolchain.  
+**Authorization:** Phases 0–3 were authorized by the owner. Phase 4 browser UI work was requested by the owner.  
 **Owner sign-off:** Pending. This file does not mark any phase as owner-verified.
 
 | Phase | Status | Local verification |
 |---|---|---|
 | Phase 0 — Foundation | Implemented | Passed |
 | Phase 1 — Tool registry | Implemented | Passed |
-| Phase 2 — AI orchestration | Implemented; live provider check blocked | Deterministic integration passed |
+| Phase 2 — AI orchestration | Implemented; Gemini live-verified | Deterministic integration and live chat passed |
 | Phase 3 — Persistent memory | Implemented | Passed, including restart persistence |
-| Phase 4 — Desktop interface | Not started | Pending |
+| Phase 4 — Desktop interface | Browser UI implemented; native Tauri blocked | Browser/live verification passed; Tauri pending |
 
 ---
 
@@ -66,7 +66,7 @@ Phase 3 — Persistent Memory
 
 ## Phase 2 — AI Orchestration
 
-**Status:** Implemented; deterministic integration tests pass. Live Gemini verification is blocked by a missing `GEMINI_API_KEY`. Live Ollama verification is blocked by the local service failing to start. Owner sign-off pending.
+**Status:** Implemented; deterministic integration and live Gemini verification pass. Live Ollama verification is blocked by the local service failing to start. Owner sign-off pending.
 
 ### Completed
 
@@ -116,16 +116,19 @@ Failure paths verified:
 - Both providers fail -> `503`, no fabricated answer.
 - Tool-call and iteration limits stop the loop truthfully.
 
-### Live provider limitation
+### Live provider verification
 
-The live `.env` currently has no `GEMINI_API_KEY`. The model status endpoint therefore truthfully reports:
+Live Gemini verification passed with `gemini-3-flash-preview`:
 
 ```text
-gemini: configured=false, available=false
-ollama: configured=true, available=false (Ollama is not reachable)
+GET  /models   active_provider=gemini, configured=true, available=true
+POST /chat     provider=gemini, reply returned, execution path verified
+GET  /usage    provider=gemini, request and token counts updated
 ```
 
-Ollama is installed, but starting its service currently fails with a Windows paging-file error. No local model could be pulled or tested. The `/chat` endpoint returned `503` rather than inventing a response. This is the correct safe behavior.
+The browser UI also completed a live Gemini turn and displayed the reply, token count, and updated local usage meter.
+
+Ollama is installed, but starting its service currently fails with a Windows paging-file error. No local model could be pulled or tested. When both providers are unavailable, `/chat` returns `503` rather than inventing a response.
 
 ---
 
@@ -169,7 +172,61 @@ Ollama is installed, but starting its service currently fails with a Windows pag
 - Live server check created a memory, searched for it, corrected it, created a second memory, restarted the backend, and confirmed both records survived.
 - The live search for `persistence` returned the persisted record.
 - The live DELETE returned `204`.
-- The live server was stopped after verification; its database and audit files were kept outside the repository.
+- The live server was stopped after verification; its database and audit files were kept out of version control.
+
+---
+
+## Phase 4 — Desktop Interface
+
+**Status:** Browser UI implemented and live-verified. The native Tauri window remains blocked by the local Windows toolchain. Owner sign-off pending.
+
+### Completed
+
+- [x] React + TypeScript + Vite desktop source in `desktop/`.
+- [x] Single-screen JARVIS layout instead of a sidebar/dashboard mockup.
+- [x] Hollow glass orb rendered with plain CSS.
+- [x] Particle field flowing around the hollow shell.
+- [x] Runtime visual states: idle, listening, thinking, and responding/speaking.
+- [x] Chat composer and conversation stream connected to `POST /chat`.
+- [x] Assistant reply typewriter rendering and speaking state.
+- [x] Live Gemini provider/model status in the top bar.
+- [x] Provider token usage display per assistant turn.
+- [x] Local daily usage meter backed by `GET /usage` and `var/usage.db`.
+- [x] Honest local-budget labeling: the meter is not presented as Google quota.
+- [x] Desktop-only CORS allowlist for the Vite and Tauri origins.
+- [x] Performance pass:
+  - Removed full-screen noise and large backdrop blurs.
+  - Removed animated blur filters.
+  - Kept orb animation to transform/opacity properties.
+  - Removed per-character smooth scrolling.
+  - Reduced typewriter update pressure and memoized static orb and meter components.
+- [x] Responsive layout for narrower desktop windows.
+
+### Phase 4 verification
+
+- Backend tests: `113 passed`.
+- Ruff, Ruff format, mypy, and `pip check` passed.
+- `npm run build` passed.
+- Browser verification used headless Chrome against `http://localhost:1420`.
+- Final idle pass verified the hollow shell, 15 particles, the one-decimal local usage label, a data-URI favicon, and no console/HTTP errors.
+- Live browser turn:
+  - Link state: `LINK ONLINE`.
+  - Thinking state observed.
+  - Speaking state observed.
+  - Reply: `BROWSER LINK OK`.
+  - Assistant usage: `683 tokens`.
+  - `/usage` refreshed to the new total.
+- The test-only local usage ledger was reset after verification; normal usage starts at zero for the current local day.
+
+### Native window limitation
+
+The real Tauri window cannot yet be built locally:
+
+- Visual Studio C++ Build Tools/MSVC and the Windows SDK are missing.
+- `C:` free space is low and the paging file is on `C:`.
+- The Rust linker fails at the `windows-sys`/`dlltool` step.
+
+The browser UI is verified; do not claim the native Tauri window works until the toolchain is repaired.
 
 ---
 
@@ -178,21 +235,26 @@ Ollama is installed, but starting its service currently fails with a Windows pag
 At the time of this update:
 
 ```text
-pytest -q                        106 passed
+pytest -q                        113 passed
 ruff check .                     All checks passed
-ruff format --check .            54 files already formatted
-mypy                             Success: no issues found in 38 source files
+ruff format --check .            67 files already formatted
+mypy                             Success: no issues found in 40 source files
 pip check                        No broken requirements found
+npm run build                    Passed (desktop)
 ```
 
-Live loopback checks:
+Live checks:
 
 ```text
 GET  /health                              200, status=ok
 GET  /tools                               200, 4 read-only tools
 POST /tools/get_system_info/execute       200, ok=true
-GET  /models                              200, Gemini unconfigured; Ollama unreachable
-POST /chat                                503, no provider available; no fabricated answer
+GET  /models                              200, Gemini configured and available
+POST /chat                                200, provider=gemini, live reply returned
+GET  /usage                               200, local ledger updated
+Browser UI                                LINK ONLINE, thinking/speaking observed
+Browser reply                             BROWSER LINK OK
+Browser turn usage                        683 tokens
 POST /memory                              201, record created
 GET  /memory/search?q=preferred%20editor  200, relevant record returned
 PATCH /memory/{id}                        200, correction persisted
@@ -200,7 +262,7 @@ Restart backend                           memory records persisted
 DELETE /memory/{id}                       204
 ```
 
-The live server was loopback-bound and was not exposed publicly.
+Ollama remained unavailable during live verification because its local service cannot start under the current paging-file limits. The live server was loopback-bound and was not exposed publicly.
 
 ---
 
@@ -241,10 +303,43 @@ The live server was loopback-bound and was not exposed publicly.
 - `backend/tests/test_memory_api.py`
 - `backend/tests/support.py`
 
+### Phase 4 and token usage
+
+- `backend/src/jarvis/usage.py`
+- `backend/src/jarvis/api/usage.py`
+- `backend/src/jarvis/models/schemas.py`
+- `backend/src/jarvis/models/gemini.py`
+- `backend/src/jarvis/models/ollama.py`
+- `backend/src/jarvis/models/orchestrator.py`
+- `backend/src/jarvis/main.py`
+- `backend/src/jarvis/config.py`
+- `backend/tests/test_usage.py`
+- `backend/tests/test_chat_api.py`
+- `backend/tests/test_gemini_provider.py`
+- `backend/tests/test_ollama_provider.py`
+- `backend/tests/test_orchestrator.py`
+- `backend/tests/test_config.py`
+- `backend/tests/test_health.py`
+- `backend/tests/conftest.py`
+- `desktop/src/App.tsx`
+- `desktop/src/styles.css`
+- `desktop/src/lib/api.ts`
+- `desktop/src/components/BlobOrb.tsx`
+- `desktop/src/components/UsageMeter.tsx`
+- `desktop/src/components/WindowChrome.tsx`
+- `desktop/src/components/Icon.tsx`
+- `desktop/src/main.tsx`
+- `desktop/index.html`
+- `desktop/package.json`
+- `desktop/vite.config.ts`
+- `desktop/src-tauri/` (scaffold; native launch pending)
+- `start.md`
+
 ### Documentation and configuration
 
 - `README.md`
 - `.env.example`
+- `.gitignore`
 - `docs/phase-status.md`
 - `docs/README.md` status banner
 
@@ -259,38 +354,38 @@ The live server was loopback-bound and was not exposed publicly.
 
 ## Known Issues and Limitations
 
-1. **Owner sign-off is pending** for Phases 0–3. Local implementation verification does not equal owner acceptance.
-2. **Gemini live validation is blocked** because no `GEMINI_API_KEY` is configured. The adapter and routing are tested with deterministic doubles.
+1. **Owner sign-off is pending** for Phases 0–4. Local implementation verification does not equal owner acceptance.
+2. **Gemini live validation passed** with `gemini-3-flash-preview`. Preview model names may change or be retired; update `GEMINI_MODEL` if the provider reports it unavailable.
 3. **Ollama live validation is blocked** because the installed service fails to start with a Windows paging-file error. No model could be pulled or run.
-4. **Runtime provider selection is in-memory only.** It resets to `DEFAULT_MODEL_PROVIDER` when the backend restarts.
-5. **No streaming responses.** `/chat` waits for a complete model response.
-6. **Memory embeddings are lightweight lexical hashing embeddings**, not a deep semantic model. Retrieval is brute-force over up to 2,000 active records. The embedder interface can be replaced later.
-7. **Retention cleanup runs at startup**, not on a scheduled background job.
-8. **Chat episode auto-storage is enabled by default.** It can be disabled with `MEMORY_AUTO_STORE_CHAT=false`.
-9. **The local API is unauthenticated but loopback-bound.** Remote authentication and authorization remain Phase 8 work.
-10. **Only `READ` tools are auto-allowed.** `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet.
-11. **Desktop UI is not implemented yet.** Phase 4 remains next.
-12. **Rust/Tauri installation failed locally** with installer exit code `3221225786` (`STATUS_DLL_INIT_FAILED`). This must be resolved before a real Tauri window can be built.
-13. `docs/README.md` is still an incomplete product-vision draft; the root `README.md` and this file are authoritative for current setup and status.
+4. **The usage meter is a local budget ledger**, not Google’s live quota. Gemini API keys do not expose remaining quota through this API.
+5. **Runtime provider selection is in-memory only.** It resets to `DEFAULT_MODEL_PROVIDER` when the backend restarts.
+6. **No streaming responses.** `/chat` waits for a complete model response; the UI then reveals the reply with a lightweight typewriter effect.
+7. **Memory embeddings are lightweight lexical hashing embeddings**, not a deep semantic model. Retrieval is brute-force over up to 2,000 active records. The embedder interface can be replaced later.
+8. **Retention cleanup runs at startup**, not on a scheduled background job.
+9. **Chat episode auto-storage is enabled by default.** It can be disabled with `MEMORY_AUTO_STORE_CHAT=false`.
+10. **The local API is unauthenticated but loopback-bound.** Remote authentication and authorization remain Phase 8 work.
+11. **Only `READ` tools are auto-allowed.** `LOW`, `CONFIRM`, and `CRITICAL` tools are denied because no confirmation channel exists yet.
+12. **The browser UI is implemented and verified; the native Tauri window is not.** Rust/Tauri installation failed locally with installer exit code `3221225786` (`STATUS_DLL_INIT_FAILED`), and MSVC/Windows SDK components are incomplete.
+13. **“Listening” is visual only.** The UI reacts to chat-input focus and typing; microphone capture and speech recognition remain Phase 5 work.
+14. **The orb/UI performance pass is transform/opacity based.** Large blur and backdrop-filter effects are intentionally avoided to keep the browser preview smooth.
+15. `docs/README.md` is still an incomplete product-vision draft; the root `README.md` and this file are authoritative for current setup and status.
 
 ---
 
 ## Next Task
 
-Phase 4 — Desktop interface:
+Finish Phase 4 native packaging once the Windows toolchain is repaired:
 
-- Tauri 2 + React + TypeScript + Vite.
-- Floating orb, sidebar, chat, command input, activity feed, system status.
-- Memory, Automations, and Settings screens.
-- Demo interactions without real AI calls.
-- Backend communication only for non-AI status/health where safe.
-- Verify the real Windows desktop window launches.
-
-Do not begin Phase 5 voice work until Phase 4 is verified.
+- Install Visual Studio C++ Build Tools and the Windows SDK.
+- Resolve the low `C:` free-space and paging-file constraint.
+- Launch `npm run tauri dev` and verify the real Windows desktop window.
+- Do not add a sidebar/dashboard layout; the owner-approved direction is the single-screen orb plus chat dock.
+- Do not begin Phase 5 voice work until Phase 4 native launch is verified or the owner explicitly accepts the browser UI as the interim Phase 4 deliverable.
 
 ## Owner Approval
 
 - Phase 0: **Authorized; local verification complete; owner sign-off pending.**
 - Phase 1: **Authorized; local verification complete; owner sign-off pending.**
-- Phase 2: **Authorized; implementation verified with deterministic providers; live provider validation blocked; owner sign-off pending.**
+- Phase 2: **Authorized; deterministic and live Gemini verification complete; owner sign-off pending.**
 - Phase 3: **Authorized; local verification and restart persistence complete; owner sign-off pending.**
+- Phase 4: **Browser UI implemented and live-verified; native Tauri launch pending; owner sign-off pending.**

@@ -18,10 +18,12 @@ from .schemas import (
     ChatResponse,
     ChatRole,
     ProviderName,
+    TokenUsage,
 )
 
 if TYPE_CHECKING:
     from ..memory.service import MemoryService
+    from ..usage import UsageStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,7 @@ class AgentOrchestrator:
         registry: ToolRegistry,
         router: ModelRouter,
         memory: MemoryService | None = None,
+        usage_store: UsageStore | None = None,
         max_tool_iterations: int = 3,
         max_tool_calls: int = 8,
         memory_max_results: int = 5,
@@ -43,6 +46,7 @@ class AgentOrchestrator:
         self._registry = registry
         self._router = router
         self._memory = memory
+        self._usage_store = usage_store
         self._max_tool_iterations = max_tool_iterations
         self._max_tool_calls = max_tool_calls
         self._memory_max_results = memory_max_results
@@ -69,6 +73,7 @@ class AgentOrchestrator:
         iterations = 0
         reply = ""
         stopped_at_limit = False
+        usage = TokenUsage()
 
         for iteration in range(1, self._max_tool_iterations + 1):
             routed = await self._router.complete(
@@ -80,6 +85,7 @@ class AgentOrchestrator:
             providers_used.append(routed.provider)
             fallback_used = fallback_used or routed.fallback_used
             response = routed.response
+            usage = usage.merged(response.usage)
 
             if not response.tool_calls:
                 reply = response.text.strip() or "I could not produce a response."
@@ -155,16 +161,23 @@ class AgentOrchestrator:
         if any(not result.audit_recorded for result in tool_results):
             warnings.append("One or more tool calls could not be written to the audit log.")
 
+        final_provider = providers_used[-1] if providers_used else self._router.active_provider
         await self._store_episode(
             conversation_id=conversation_id,
             user_message=request.message,
             reply=reply,
-            provider=providers_used[-1] if providers_used else self._router.active_provider,
+            provider=final_provider,
         )
+        if self._usage_store is not None:
+            try:
+                await self._usage_store.record(final_provider, usage)
+            except Exception:
+                logger.exception("Failed to record token usage")
+                warnings.append("Token usage could not be recorded.")
 
         return ChatResponse(
             reply=reply,
-            provider=providers_used[-1] if providers_used else self._router.active_provider,
+            provider=final_provider,
             providers_used=providers_used,
             fallback_used=fallback_used,
             tool_results=tool_results,
@@ -172,6 +185,7 @@ class AgentOrchestrator:
             iterations=iterations,
             conversation_id=conversation_id,
             warnings=warnings,
+            usage=usage,
         )
 
     async def _retrieve_memory_context(self, query: str) -> str:

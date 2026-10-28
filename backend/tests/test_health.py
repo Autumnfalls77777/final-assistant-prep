@@ -27,3 +27,30 @@ def test_unknown_route_returns_404(client: TestClient) -> None:
     response = client.get("/does-not-exist")
 
     assert response.status_code == 404
+
+
+def test_cors_allows_desktop_origin(client: TestClient) -> None:
+    response = client.options(
+        "/chat",
+        headers={
+            "Origin": "http://localhost:1420",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:1420"
+
+
+def test_cors_rejects_unknown_origin(client: TestClient) -> None:
+    response = client.options(
+        "/chat",
+        headers={
+            "Origin": "https://example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert "access-control-allow-origin" not in response.headers

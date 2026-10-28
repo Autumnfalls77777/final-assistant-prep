@@ -4,12 +4,12 @@
 
 > A modular, local-first personal AI assistant for Windows, designed to combine natural voice interaction, desktop automation, persistent memory, productivity integrations, and secure mobile control.
 
-**Project status:** Phase 3 — Persistent Memory (implementation verified; owner sign-off pending)  
+**Project status:** Phase 4 - Desktop Interface (browser UI implemented and live-verified; native Tauri launch pending; owner sign-off pending)  
 **Platform:** Windows desktop, with Android companion planned  
 **Development approach:** Incremental, phase-gated development  
 **Primary objective:** Build a reliable, extensible personal AI assistant without sacrificing maintainability, privacy, or security.
 
-> **Implementation note:** Phases 0–3 are implemented. Phase 2's routing and tool-calling path is verified with deterministic providers; live Gemini/Ollama validation is blocked by missing provider configuration and a local Ollama startup failure. Phase 4 desktop work is next. See `docs/phase-status.md` for exact verification and limitations.
+> **Implementation note:** Phases 0-3 are implemented. Phase 2's Gemini path is live-verified. The Phase 4 browser UI is implemented and live-verified against Gemini; the native Tauri window remains blocked by the local Windows toolchain. See `docs/phase-status.md` for exact verification and limitations.
 
 ---
 
@@ -307,12 +307,13 @@ Each phase is a separate milestone. A phase is not complete merely because code 
 ### Phase 4 — Desktop interface
 
 - Implement the Tauri and React application.
-- Create the floating orb and expandable chat.
-- Add global activation shortcuts.
-- Integrate backend communication.
-- Display application state and errors.
+- Create the single-screen hollow orb and chat dock.
+- Show live provider/model, connection, and token-usage state.
+- Integrate backend chat and usage endpoints.
+- Add global activation shortcuts (pending native window).
+- Display application state and errors honestly.
 
-**Acceptance criteria:** The assistant can be summoned from other applications and communicates reliably with the backend.
+**Acceptance criteria:** The assistant can be summoned from other applications and communicates reliably with the backend. The browser UI is implemented and live-verified; native Tauri launch remains pending until the Windows toolchain is available.
 
 ### Phase 5 — Voice and modes
 
